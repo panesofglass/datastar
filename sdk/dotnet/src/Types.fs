@@ -19,24 +19,32 @@ type SpanBuffer =
     val mutable private Position: int
     val mutable private IsPooled: bool
 
-    new(initialSize) =
-        let useStackAlloc = initialSize <= 256
+    static member SmallBufferSize = 256
+    static member MediumBufferSize = 4096
 
-        { Buffer =
-            if useStackAlloc then
-                Array.zeroCreate initialSize
-            else
-                ArrayPool<char>.Shared.Rent(initialSize)
-          Position = 0
-          IsPooled = not useStackAlloc }
+    new(initialSize) =
+        let usePool = initialSize > SpanBuffer.SmallBufferSize
+
+        if usePool then
+            let array = ArrayPool<char>.Shared.Rent(initialSize)
+
+            { Buffer = array
+              Position = 0
+              IsPooled = true }
+        else
+            { Buffer = Array.zeroCreate<char> initialSize
+              Position = 0
+              IsPooled = false }
 
     [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
     member this.Reset() = this.Position <- 0
 
     [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
-    member this.Append(value: ReadOnlySpan<char>) =
-        if this.Position + value.Length > this.Buffer.Length then
-            let newSize = Math.Max(this.Buffer.Length * 2, this.Position + value.Length)
+    member private this.EnsureCapacity(additionalChars) =
+        let required = this.Position + additionalChars
+
+        if required > this.Buffer.Length then
+            let newSize = Math.Max(this.Buffer.Length * 2, required)
             let newBuffer = ArrayPool<char>.Shared.Rent(newSize)
             Array.Copy(this.Buffer, newBuffer, this.Position)
 
@@ -46,11 +54,22 @@ type SpanBuffer =
             this.Buffer <- newBuffer
             this.IsPooled <- true
 
-        value.CopyTo(this.Buffer.AsSpan(this.Position))
+    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
+    member this.AppendLiteral(value: string) =
+        // Optimize for literal strings that we know are constant
+        this.EnsureCapacity(value.Length)
+        value.AsSpan().CopyTo(this.Buffer.AsSpan(this.Position))
         this.Position <- this.Position + value.Length
 
     [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
-    member this.AppendLine() = this.Append("\n".AsSpan())
+    member this.Append(value: ReadOnlySpan<char>) =
+        if not value.IsEmpty then
+            this.EnsureCapacity(value.Length)
+            value.CopyTo(this.Buffer.AsSpan(this.Position))
+            this.Position <- this.Position + value.Length
+
+    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
+    member this.AppendLine() = this.AppendLiteral(Consts.NewLine)
 
     [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
     member this.AsMemory() =
@@ -131,25 +150,25 @@ module ServerSentEvent =
     [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
     let serializeToSpan (sse: ServerSentEvent) (buffer: SpanBuffer) =
         // Event type line
-        buffer.Append("event: ".AsSpan())
+        buffer.AppendLiteral(Consts.EventPrefix)
         buffer.Append((sse.EventType |> Consts.EventType.toString).AsSpan())
         buffer.AppendLine()
 
         // ID line if present
         if sse.Id |> ValueOption.isSome then
-            buffer.Append("id: ".AsSpan())
+            buffer.AppendLiteral(Consts.IdPrefix)
             buffer.Append((sse.Id |> ValueOption.get).AsSpan())
             buffer.AppendLine()
 
         // Retry line if not default
         if sse.Retry <> Consts.DefaultSseRetryDuration then
-            buffer.Append("retry: ".AsSpan())
+            buffer.AppendLiteral(Consts.RetryPrefix)
             buffer.Append(sse.Retry.TotalMilliseconds.ToString().AsSpan())
             buffer.AppendLine()
 
         // Data lines
         for dataLine in sse.DataLines do
-            buffer.Append("data: ".AsSpan())
+            buffer.AppendLiteral(Consts.DataPrefix)
             buffer.Append(dataLine.Span)
             buffer.AppendLine()
 
@@ -158,8 +177,25 @@ module ServerSentEvent =
         buffer.AppendLine()
 
     let serialize sse =
-        // Use a pooled buffer starting with 4KB
-        use buffer = new SpanBuffer(4096)
+        // Choose appropriate buffer size based on event data
+        let estimatedSize =
+            let baseSize = 50 // Event type, newlines, etc
+
+            let dataSize =
+                sse.DataLines
+                |> Array.sumBy (fun line -> line.Length + Consts.DataPrefix.Length + Consts.NewLine.Length)
+
+            baseSize + dataSize
+
+        // Use the right buffer size based on estimation
+        let initialSize =
+            if estimatedSize <= SpanBuffer.SmallBufferSize then
+                SpanBuffer.SmallBufferSize
+            else
+                Math.Max(SpanBuffer.MediumBufferSize, estimatedSize)
+
+        // Create the buffer and serialize
+        use buffer = new SpanBuffer(initialSize)
         serializeToSpan sse buffer
 
         // Convert to string (single allocation at the end)

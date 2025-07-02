@@ -1,7 +1,9 @@
 module StarFederation.Datastar.FSharp.Benchmark.ExecuteScriptBenchmarks
 
 open System
+open System.Threading
 open BenchmarkDotNet.Attributes
+open Microsoft.AspNetCore.Http
 open StarFederation.Datastar.FSharp
 open StarFederation.Datastar.FSharp.Benchmark.TestData
 
@@ -17,25 +19,40 @@ type ExecuteScriptBenchmarks() =
     // Script that already has <script> tags to test different code path
     let preWrappedScript = $"<script>{JavaScript.generate Sizes.Small}</script>"
 
-    let defaultOptions = ExecuteScriptOptions.defaults
+    let defaultOptions = ExecuteScriptOptions.Defaults
     let customOptions = { defaultOptions with EventId = ValueSome "custom-event" }
 
     [<Benchmark(Baseline = true)>]
     member _.ExecuteScript_Small_Default() =
-        ServerSentEventGenerator.ExecuteScript(smallScript, defaultOptions)
+        let httpContext = DefaultHttpContext()
+        ServerSentEventGenerator.ExecuteScript(httpContext.Response, smallScript, defaultOptions, CancellationToken.None)
+            .GetAwaiter().GetResult() |> ignore
+        httpContext.Response.Body.Length
 
     [<Benchmark>]
     member _.ExecuteScript_Small_CustomOptions() =
-        ServerSentEventGenerator.ExecuteScript(smallScript, customOptions)
+        let httpContext = DefaultHttpContext()
+        ServerSentEventGenerator.ExecuteScript(httpContext.Response, smallScript, customOptions, CancellationToken.None)
+            .GetAwaiter().GetResult() |> ignore
+        httpContext.Response.Body.Length
 
     [<Benchmark>]
     member _.ExecuteScript_Medium_Default() =
-        ServerSentEventGenerator.ExecuteScript(mediumScript, defaultOptions)
+        let httpContext = DefaultHttpContext()
+        ServerSentEventGenerator.ExecuteScript(httpContext.Response, mediumScript, defaultOptions, CancellationToken.None)
+            .GetAwaiter().GetResult() |> ignore
+        httpContext.Response.Body.Length
 
     [<Benchmark>]
     member _.ExecuteScript_Large_Default() =
-        ServerSentEventGenerator.ExecuteScript(largeScript, defaultOptions)
+        let httpContext = DefaultHttpContext()
+        ServerSentEventGenerator.ExecuteScript(httpContext.Response, largeScript, defaultOptions, CancellationToken.None)
+            .GetAwaiter().GetResult() |> ignore
+        httpContext.Response.Body.Length
 
     [<Benchmark>]
     member _.ExecuteScript_PreWrapped_Default() =
-        ServerSentEventGenerator.ExecuteScript(preWrappedScript, defaultOptions)
+        let httpContext = DefaultHttpContext()
+        ServerSentEventGenerator.ExecuteScript(httpContext.Response, preWrappedScript, defaultOptions, CancellationToken.None)
+            .GetAwaiter().GetResult() |> ignore
+        httpContext.Response.Body.Length

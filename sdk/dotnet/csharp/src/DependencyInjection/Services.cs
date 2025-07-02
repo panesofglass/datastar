@@ -39,46 +39,36 @@ public interface IDatastarService
     Task<TType?> ReadSignalsAsync<TType>(JsonSerializerOptions? options = null);
 }
 
-internal class DatastarService(
-    Core.ISendServerEvent sendServerEventHandler,
-    Core.IReadSignals signalsHandler
-) : IDatastarService
+internal class DatastarService(Core.ServerSentEventGenerator serverSentEventGenerator)
+    : IDatastarService
 {
     public Task StartServerEventStream(IDictionary<string, StringValues> additionalHeaders) =>
-        sendServerEventHandler.StartServerEventStream(additionalHeaders);
+        serverSentEventGenerator.StartServerEventStreamAsync(additionalHeaders);
 
     public Task PatchElementsAsync(string fragments, PatchElementsOptions? options = null) =>
-        sendServerEventHandler.SendServerEvent(
-            Core.ServerSentEventGenerator.PatchElements(fragments, options ?? new())
-        );
+        serverSentEventGenerator.PatchElementsAsync(fragments, options ?? new());
 
     public Task RemoveElementAsync(string selector, RemoveFragmentOptions? options = null) =>
-        sendServerEventHandler.SendServerEvent(
-            Core.ServerSentEventGenerator.RemoveElement(selector, options ?? new())
-        );
+        serverSentEventGenerator.RemoveElementAsync(selector, options ?? new());
 
     public Task PatchSignalsAsync<TType>(
         TType signals,
         JsonSerializerOptions? jsonSerializerOptions = null,
         PatchSignalsOptions? patchSignalsOptions = null
     ) =>
-        sendServerEventHandler.SendServerEvent(
-            Core.ServerSentEventGenerator.PatchSignals(
-                signals as string ?? JsonSerializer.Serialize(signals, jsonSerializerOptions),
-                patchSignalsOptions ?? new()
-            )
+        serverSentEventGenerator.PatchSignalsAsync(
+            signals as string ?? JsonSerializer.Serialize(signals, jsonSerializerOptions),
+            patchSignalsOptions ?? new()
         );
 
     public Task ExecuteScriptAsync(string script, ExecuteScriptOptions? options = null) =>
-        sendServerEventHandler.SendServerEvent(
-            Core.ServerSentEventGenerator.ExecuteScript(script, options ?? new())
-        );
+        serverSentEventGenerator.ExecuteScriptAsync(script, options);
 
-    public Stream GetSignalsStream() => signalsHandler.GetSignalsStream();
+    public Stream GetSignalsStream() => serverSentEventGenerator.GetSignalsStream();
 
     public async Task<string?> ReadSignalsAsync()
     {
-        string? signals = await signalsHandler.ReadSignalsAsync();
+        string? signals = await serverSentEventGenerator.ReadSignalsAsync();
         return String.IsNullOrEmpty(signals) ? null : signals;
     }
 
@@ -86,8 +76,8 @@ internal class DatastarService(
         JsonSerializerOptions? jsonSerializerOptions = null
     )
     {
-        FSharpValueOption<TType> read = await signalsHandler.ReadSignalsAsync<TType>(
-            jsonSerializerOptions ?? Core.JsonSerializerOptions.SignalsDefault
+        FSharpValueOption<TType> read = await serverSentEventGenerator.ReadSignalsAsync<TType>(
+            jsonSerializerOptions
         );
         return read.IsSome ? read.Value : default;
     }

@@ -23,7 +23,6 @@
         <Compile Include="PatchElementsBenchmarks.fs" />
         <Compile Include="PatchSignalsBenchmarks.fs" />
         <Compile Include="ExecuteScriptBenchmarks.fs" />
-        <Compile Include="SerializationBenchmarks.fs" />
         <Compile Include="HttpBenchmarks.fs" />
         <Compile Include="Program.fs" />
     </ItemGroup>

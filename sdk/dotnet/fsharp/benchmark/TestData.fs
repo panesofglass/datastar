@@ -115,25 +115,6 @@ module JavaScript =
             
         sb.ToString()
 
-/// Generate realistic Server-Sent Events with consistent structure
-module ServerSentEvents =
-    let createPatchElementsEvent size eventId =
-        { EventType = PatchElements
-          Id = eventId
-          Retry = TimeSpan.FromSeconds(1.0)
-          DataLines = StringValues(Html.generate size) }
-    
-    let createPatchSignalsEvent size eventId =
-        { EventType = PatchSignals
-          Id = eventId  
-          Retry = TimeSpan.FromSeconds(1.0)
-          DataLines = StringValues(Signals.generate size) }
-    
-    let createExecuteScriptEvent size eventId =
-        { EventType = PatchElements // ExecuteScript uses PatchElements internally
-          Id = eventId
-          Retry = TimeSpan.FromSeconds(1.0)
-          DataLines = StringValues($"<script>{JavaScript.generate size}</script>") }
 
 /// Standard size definitions for consistent benchmarking
 module Sizes =

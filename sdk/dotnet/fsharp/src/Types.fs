@@ -14,13 +14,6 @@ open System.Threading.Tasks
 open Microsoft.Extensions.Primitives
 open StarFederation.Datastar.FSharp.Utility
 
-[<Struct>]
-type ServerSentEvent =
-    { EventType: EventType
-      Id: string voption
-      Retry: TimeSpan
-      DataLines: StringValues }
-
 /// <summary>
 /// Signals read to and from Datastar on the front end
 /// </summary>
@@ -43,120 +36,64 @@ type PatchElementsOptions =
       UseViewTransition: bool
       EventId: string voption
       Retry: TimeSpan }
-
-[<Struct>]
-type PatchSignalsOptions =
-    { OnlyIfMissing: bool
-      EventId: string voption
-      Retry: TimeSpan }
+    with
+    static member Defaults =
+        { Selector = ValueNone
+          PatchMode = Consts.DefaultElementPatchMode
+          UseViewTransition = Consts.DefaultElementsUseViewTransitions
+          EventId = ValueNone
+          Retry = Consts.DefaultSseRetryDuration }
 
 [<Struct>]
 type RemoveElementOptions =
     { UseViewTransition: bool
       EventId: string voption
       Retry: TimeSpan }
+    with
+    static member Defaults =
+        { UseViewTransition = Consts.DefaultElementsUseViewTransitions
+          EventId = ValueNone
+          Retry = Consts.DefaultSseRetryDuration }
 
 [<Struct>]
-type ExecuteScriptOptions = { EventId: string voption; Retry: TimeSpan }
+type PatchSignalsOptions =
+    { OnlyIfMissing: bool
+      EventId: string voption
+      Retry: TimeSpan }
+    with
+    static member Defaults =
+        { OnlyIfMissing = Consts.DefaultPatchSignalsOnlyIfMissing
+          EventId = ValueNone
+          Retry = Consts.DefaultSseRetryDuration }
+
+[<Struct>]
+type ExecuteScriptOptions =
+    { EventId: string voption; Retry: TimeSpan }
+    with
+    static member Defaults =
+        { EventId = ValueNone
+          Retry = Consts.DefaultSseRetryDuration }
 
 /// <summary>
 /// Read the signals from the request
 /// </summary>
 type IReadSignals =
     abstract GetSignalsStream : unit -> Stream
-    //
-    abstract ReadSignalsAsync : unit -> Task<Signals>
     abstract ReadSignalsAsync : CancellationToken -> Task<Signals>
-    abstract ReadSignalsAsync<'T> : unit -> Task<'T voption>
-    abstract ReadSignalsAsync<'T> : JsonSerializerOptions -> Task<'T voption>
     abstract ReadSignalsAsync<'T> : JsonSerializerOptions * CancellationToken -> Task<'T voption>
 
 /// <summary>
-/// Can send SSEs to the client
+/// Can send SSE event to the client
 /// </summary>
 type ISendServerEvent =
-    abstract StartServerEventStream : unit -> Task
-    abstract StartServerEventStream : CancellationToken -> Task
-    abstract StartServerEventStream : additionalHeaders:IDictionary<string, StringValues> -> Task
-    abstract StartServerEventStream : additionalHeaders:IDictionary<string, StringValues> * CancellationToken -> Task
-    abstract SendServerEvent : ServerSentEvent -> Task
-    abstract SendServerEvent : ServerSentEvent * CancellationToken -> Task
-
-module ServerSentEvent =
-    let private lines sse =
-        seq {
-            $"event: {sse.EventType |> Consts.EventType.toString}"
-
-            if sse.Id |> ValueOption.isSome
-            then $"id: {sse.Id |> ValueOption.get}"
-
-            if (sse.Retry <> Consts.DefaultSseRetryDuration)
-            then $"retry: {sse.Retry.TotalMilliseconds}"
-
-            yield! sse.DataLines |> Seq.map (fun dataLine -> $"data: {dataLine}")
-
-            ""; ""; ""
-        }
-
-    let serializeAsBytes sse =
-        lines sse
-        |> Seq.map (fun line -> Seq.append (Encoding.UTF8.GetBytes line) "\n"B)
-        |> Seq.concat
-
-    let private eventPrefix = "event: "B
-    let private idPrefix = "id: "B
-    let private retryPrefix = "retry: "B
-    let private dataPrefix = "data: "B
-
-    let inline private writeUtf8String (str: string) (writer: IBufferWriter<byte>) =
-        let span = writer.GetSpan(Encoding.UTF8.GetByteCount(str))
-        let bytesWritten = Encoding.UTF8.GetBytes(str.AsSpan(), span)
-        writer.Advance(bytesWritten)
-        writer
-
-    let inline private writeUtf8Literal (bytes: byte[]) (writer: IBufferWriter<byte>) =
-        let span = writer.GetSpan(bytes.Length)
-        bytes.AsSpan().CopyTo(span)
-        writer.Advance(bytes.Length)
-        writer
-
-    let inline private writeNewline (writer: IBufferWriter<byte>) =
-        let span = writer.GetSpan(1)
-        span[0] <- 10uy // '\n'
-        writer.Advance(1)
-
-    let serializeToBuffer (sse: ServerSentEvent) (writer: IBufferWriter<byte>) =
-        writer
-        |> writeUtf8Literal eventPrefix
-        |> writeUtf8String (sse.EventType |> Consts.EventType.toString)
-        |> writeNewline
-        |> ignore
-
-        if sse.Id |> ValueOption.isSome then
-            writer
-            |> writeUtf8Literal idPrefix
-            |> writeUtf8String (sse.Id |> ValueOption.get)
-            |> writeNewline
-            |> ignore
-
-        if (sse.Retry <> Consts.DefaultSseRetryDuration) then
-            writer
-            |> writeUtf8Literal retryPrefix
-            |> writeUtf8String (sse.Retry.TotalMilliseconds.ToString())
-            |> writeNewline
-            |> ignore
-
-        for dataLine in sse.DataLines do
-            writer
-            |> writeUtf8Literal dataPrefix
-            |> writeUtf8String dataLine
-            |> writeNewline
-            |> ignore
-
-        writer |> writeNewline
+    abstract StartServerEventStreamAsync : additionalHeaders:IDictionary<string, StringValues> * CancellationToken -> Task
+    abstract PatchElementsAsync : elements:string * options:PatchElementsOptions * CancellationToken -> Task
+    abstract RemoveElementAsync : selector:string * options:RemoveElementOptions * CancellationToken -> Task
+    abstract PatchSignalsAsync : signals:string * options:PatchSignalsOptions * CancellationToken -> Task
+    abstract ExecuteScriptAsync : script:string * options:ExecuteScriptOptions * CancellationToken -> Task
 
 module Signals =
-    let inline value (signals:Signals) : string = signals.ToString()
+    let inline value (signals:Signals) : string = signals
     let create (signalsString:string) = Signals signalsString
     let tryCreate (signalsString:string) =
         try
@@ -166,7 +103,7 @@ module Signals =
     let empty = Signals "{ }"
 
 module SignalPath =
-    let inline value (signalPath:SignalPath) = signalPath.ToString()
+    let inline value (signalPath:SignalPath) = signalPath
     let kebabValue signals = signals |> value |> String.toKebab
     let isValidKey (signalPathKey:string) =
         signalPathKey |> String.isPopulated && signalPathKey.ToCharArray() |> Seq.forall (fun chr -> Char.IsLetter chr || Char.IsNumber chr || chr = '_')
@@ -180,9 +117,9 @@ module SignalPath =
         then SignalPath signalPathString
         else failwith $"{signalPathString} is not a valid signal path"
     let create = sp
-    let keys signalPath = signalPath |> value |> String.split ["."]
+    let keys (signalPath:SignalPath) = signalPath.Split('.')
     let createJsonNodePathToValue<'T> signalPath (signalValue:'T) =
-       signalPath
+        signalPath
         |> keys
         |> Seq.rev
         |> Seq.fold (fun json key ->
@@ -191,7 +128,7 @@ module SignalPath =
 
 module Selector =
     let regex = Regex(@"[#.][-_]?[_a-zA-Z]+(?:\w|\\.)*|(?<=\s+|^)(?:\w+|\*)|\[[^\s""'=<>`]+?(?<![~|^$*])([~|^$*]?=(?:['""].*['""]|[^\s""'=<>`]+))?\]|:[\w-]+(?:\(.*\))?", RegexOptions.Compiled)
-    let inline value (selector:Selector) = selector.ToString()
+    let inline value (selector:Selector) = selector
     let isValid (selectorString:string) = regex.IsMatch selectorString
     let tryCreate (selectorString:string) =
         if isValid selectorString
@@ -202,28 +139,3 @@ module Selector =
         then Selector selectorString
         else failwith $"{selectorString} is not a valid selector"
     let create = sel
-
-module PatchElementsOptions =
-    let defaults =
-        { Selector = ValueNone
-          PatchMode = Consts.DefaultElementPatchMode
-          UseViewTransition = Consts.DefaultElementsUseViewTransitions
-          EventId = ValueNone
-          Retry = Consts.DefaultSseRetryDuration }
-
-module RemoveElementOptions =
-    let defaults =
-        { UseViewTransition = Consts.DefaultElementsUseViewTransitions
-          EventId = ValueNone
-          Retry = Consts.DefaultSseRetryDuration }
-
-module PatchSignalsOptions =
-    let defaults =
-        { OnlyIfMissing = Consts.DefaultPatchSignalsOnlyIfMissing
-          EventId = ValueNone
-          Retry = Consts.DefaultSseRetryDuration }
-
-module ExecuteScriptOptions =
-    let defaults =
-        { EventId = ValueNone
-          Retry = Consts.DefaultSseRetryDuration }

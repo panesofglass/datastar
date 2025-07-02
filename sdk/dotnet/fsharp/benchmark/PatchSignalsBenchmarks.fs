@@ -1,8 +1,10 @@
 module StarFederation.Datastar.FSharp.Benchmark.PatchSignalsBenchmarks
 
 open System
+open System.Threading
 open System.Text.Json
 open BenchmarkDotNet.Attributes
+open Microsoft.AspNetCore.Http
 open StarFederation.Datastar.FSharp
 open StarFederation.Datastar.FSharp.Benchmark.TestData
 
@@ -15,29 +17,47 @@ type PatchSignalsBenchmarks() =
     let mediumSignal = Signals.generate Sizes.Medium  
     let largeSignal = Signals.generate Sizes.Large
 
-    let defaultOptions = PatchSignalsOptions.defaults
+    let defaultOptions = PatchSignalsOptions.Defaults
     let onlyIfMissingOptions = { defaultOptions with OnlyIfMissing = true }
 
     [<Benchmark(Baseline = true)>]
     member _.PatchSignals_Small_Default() =
-        ServerSentEventGenerator.PatchSignals(smallSignal, defaultOptions)
+        let httpContext = DefaultHttpContext()
+        ServerSentEventGenerator.PatchSignals(httpContext.Response, smallSignal, defaultOptions, CancellationToken.None)
+            .GetAwaiter().GetResult() |> ignore
+        httpContext.Response.Body.Length
 
     [<Benchmark>]
     member _.PatchSignals_Small_OnlyIfMissing() =
-        ServerSentEventGenerator.PatchSignals(smallSignal, onlyIfMissingOptions)
+        let httpContext = DefaultHttpContext()
+        ServerSentEventGenerator.PatchSignals(httpContext.Response, smallSignal, onlyIfMissingOptions, CancellationToken.None)
+            .GetAwaiter().GetResult() |> ignore
+        httpContext.Response.Body.Length
 
     [<Benchmark>]
     member _.PatchSignals_Medium_Default() =
-        ServerSentEventGenerator.PatchSignals(mediumSignal, defaultOptions)
+        let httpContext = DefaultHttpContext()
+        ServerSentEventGenerator.PatchSignals(httpContext.Response, mediumSignal, defaultOptions, CancellationToken.None)
+            .GetAwaiter().GetResult() |> ignore
+        httpContext.Response.Body.Length
 
     [<Benchmark>]
     member _.PatchSignals_Medium_OnlyIfMissing() =
-        ServerSentEventGenerator.PatchSignals(mediumSignal, onlyIfMissingOptions)
+        let httpContext = DefaultHttpContext()
+        ServerSentEventGenerator.PatchSignals(httpContext.Response, mediumSignal, onlyIfMissingOptions, CancellationToken.None)
+            .GetAwaiter().GetResult() |> ignore
+        httpContext.Response.Body.Length
 
     [<Benchmark>]
     member _.PatchSignals_Large_Default() =
-        ServerSentEventGenerator.PatchSignals(largeSignal, defaultOptions)
+        let httpContext = DefaultHttpContext()
+        ServerSentEventGenerator.PatchSignals(httpContext.Response, largeSignal, defaultOptions, CancellationToken.None)
+            .GetAwaiter().GetResult() |> ignore
+        httpContext.Response.Body.Length
 
     [<Benchmark>]
     member _.PatchSignals_Large_OnlyIfMissing() =
-        ServerSentEventGenerator.PatchSignals(largeSignal, onlyIfMissingOptions)
+        let httpContext = DefaultHttpContext()
+        ServerSentEventGenerator.PatchSignals(httpContext.Response, largeSignal, onlyIfMissingOptions, CancellationToken.None)
+            .GetAwaiter().GetResult() |> ignore
+        httpContext.Response.Body.Length
